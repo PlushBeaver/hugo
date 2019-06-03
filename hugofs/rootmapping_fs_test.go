@@ -23,14 +23,58 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRootMappingFsMount(t *testing.T) {
+	assert := require.New(t)
+	fs := afero.NewMemMapFs()
+
+	// from = themename to := b.p.AbsPathify(filepath.Join(b.p.ThemesDir, theme.Name, themeFolder))
+	testfile := "test.txt"
+
+	assert.NoError(afero.WriteFile(fs, filepath.Join("themes/a/myblogcontent", testfile), []byte("some content"), 0755))
+
+	bfs := NewBasePathRealFilenameFs(afero.NewBasePathFs(fs, "themes/a").(*afero.BasePathFs))
+	rm := RootMapping{
+		From: "blog",
+		To:   "myblogcontent",
+		Lang: "no",
+	}
+
+	rfs, err := NewRootMappingFs(bfs, rm)
+	assert.NoError(err)
+
+	blog, err := rfs.Stat("blog")
+	assert.NoError(err)
+	assert.Equal("myblogcontent", blog.(RealFilenameInfo).RealFilename())
+	assert.Equal("no", blog.(LangProvider).Lang())
+
+	//bf, err := blog.(FileOpener).Open()
+	//assert.NoError(err)
+	//defer bf.Close()
+
+	dirs, err := afero.ReadDir(rfs, "blog")
+	assert.NoError(err)
+	assert.Equal(1, len(dirs))
+	dir := dirs[0]
+	assert.Equal(testfile, dir.Name())
+
+	rfi, ok := dir.(RealFilenameInfo)
+	assert.True(ok)
+	assert.Equal("themes/a/myblogcontent/test.txt", rfi.RealFilename())
+
+	pfi, ok := dir.(FilePathPather)
+	assert.True(ok)
+	assert.Equal("blog/test.txt", pfi.Path())
+
+}
+
 func TestRootMappingFsRealName(t *testing.T) {
 	assert := require.New(t)
 	fs := afero.NewMemMapFs()
 
-	rfs, err := NewRootMappingFs(fs, "f1", "f1t", "f2", "f2t")
+	rfs, err := NewRootMappingFsFromFromTo(fs, "f1", "f1t", "f2", "f2t")
 	assert.NoError(err)
 
-	name, _ := rfs.realNameAndRoot(filepath.Join("f1", "foo", "file.txt"))
+	name, _, _ := rfs.realNameAndRoot(filepath.Join("f1", "foo", "file.txt"))
 	assert.Equal(filepath.FromSlash("f1t/foo/file.txt"), name)
 
 }
@@ -45,7 +89,7 @@ func TestRootMappingFsDirnames(t *testing.T) {
 	assert.NoError(fs.Mkdir("f3t", 0755))
 	assert.NoError(afero.WriteFile(fs, filepath.Join("f2t", testfile), []byte("some content"), 0755))
 
-	rfs, err := NewRootMappingFs(fs, "bf1", "f1t", "cf2", "f2t", "af3", "f3t")
+	rfs, err := NewRootMappingFsFromFromTo(fs, "bf1", "f1t", "cf2", "f2t", "af3", "f3t")
 	assert.NoError(err)
 
 	fif, err := rfs.Stat(filepath.Join("cf2", testfile))
@@ -78,7 +122,7 @@ func TestRootMappingFsOs(t *testing.T) {
 	assert.NoError(fs.Mkdir(filepath.Join(d, "f3t"), 0755))
 	assert.NoError(afero.WriteFile(fs, filepath.Join(d, "f2t", testfile), []byte("some content"), 0755))
 
-	rfs, err := NewRootMappingFs(fs, "bf1", filepath.Join(d, "f1t"), "cf2", filepath.Join(d, "f2t"), "af3", filepath.Join(d, "f3t"))
+	rfs, err := NewRootMappingFsFromFromTo(fs, "bf1", filepath.Join(d, "f1t"), "cf2", filepath.Join(d, "f2t"), "af3", filepath.Join(d, "f3t"))
 	assert.NoError(err)
 
 	fif, err := rfs.Stat(filepath.Join("cf2", testfile))

@@ -132,3 +132,37 @@ func createChildModMatchers(m *mods.Md, ignoreVendor, vendored bool) []string {
 	}
 	return matchers
 }
+
+func TestThemeWithContent(t *testing.T) {
+	t.Parallel()
+
+	b := newTestSitesBuilder(t)
+	b.WithTemplatesAdded("index.html", `
+{{ range .Site.RegularPages }}
+|{{ .Title }}|{{ .RelPermalink }}
+{{ end }}
+`)
+
+	b.WithConfigFile("toml", `
+baseURL="https://example.org"
+[module]
+[[module.imports]]
+path="a"
+[[module.imports.mounts]]
+source="mycontent"
+target="content/blog"
+lang="en"
+`)
+
+	b.WithSourceFile("themes/a/mycontent/page.md", `---
+title: Theme Content
+---
+Some theme content.
+
+`)
+
+	b.Build(BuildCfg{})
+
+	b.AssertFileContent("public/index.html", " |Theme Content|/blog/page/")
+
+}

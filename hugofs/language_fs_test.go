@@ -14,87 +14,69 @@
 package hugofs
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/gohugoio/hugo/langs"
+	"github.com/spf13/viper"
+
 	"github.com/spf13/afero"
+
 	"github.com/stretchr/testify/require"
 )
 
-func TestLanguagFs(t *testing.T) {
-	languages := map[string]bool{
-		"sv": true,
-	}
-	base := filepath.FromSlash("/my/base")
+// TODO(bep) mod
+// tc-lib-color/class-Com.Tecnick.Color.Css and class-Com.Tecnick.Color.sv.Css
+func TestLingoFs(t *testing.T) {
 	assert := require.New(t)
-	m := afero.NewMemMapFs()
-	bfs := afero.NewBasePathFs(m, base)
-	lfs := NewLanguageFs("sv", languages, bfs)
-	assert.NotNil(lfs)
-	assert.Equal("sv", lfs.Lang())
-	err := afero.WriteFile(lfs, filepath.FromSlash("sect/page.md"), []byte("abc"), 0777)
-	assert.NoError(err)
-	fi, err := lfs.Stat(filepath.FromSlash("sect/page.md"))
-	assert.NoError(err)
-	assert.Equal("__hugofs_sv_page.md", fi.Name())
+	v := viper.New()
+	v.Set("contentDir", "content")
 
-	languager, ok := fi.(LanguageAnnouncer)
-	assert.True(ok)
+	langSet := langs.Languages{
+		langs.NewLanguage("en", v),
+		langs.NewLanguage("sv", v),
+	}.AsSet()
 
-	assert.Equal("sv", languager.Lang())
+	enFs := MetaFs{TheLang: "en", TheFs: afero.NewMemMapFs()}
+	svFs := MetaFs{TheLang: "sv", TheFs: afero.NewMemMapFs()}
 
-	lfi, ok := fi.(*LanguageFileInfo)
-	assert.True(ok)
-	assert.Equal(filepath.FromSlash("/my/base/sect/page.md"), lfi.Filename())
-	assert.Equal(filepath.FromSlash("sect/page.md"), lfi.Path())
-	assert.Equal("page.sv.md", lfi.virtualName)
-	assert.Equal("__hugofs_sv_page.md", lfi.Name())
-	assert.Equal("page.md", lfi.RealName())
-	assert.Equal(filepath.FromSlash("/my/base"), lfi.BaseDir())
-	assert.Equal("sv", lfi.Lang())
-	assert.Equal("page", lfi.TranslationBaseName())
-}
+	for _, fs := range []MetaFs{enFs, svFs} {
+		assert.NoError(afero.WriteFile(fs.Fs(), filepath.FromSlash("blog/a.txt"), []byte("abc"), 0777))
 
-// Issue 4559
-func TestFilenamesHandling(t *testing.T) {
-	languages := map[string]bool{
-		"sv": true,
-	}
-	base := filepath.FromSlash("/my/base")
-	assert := require.New(t)
-	m := afero.NewMemMapFs()
-	bfs := afero.NewBasePathFs(m, base)
-	lfs := NewLanguageFs("sv", languages, bfs)
-	assert.NotNil(lfs)
-	assert.Equal("sv", lfs.Lang())
-
-	for _, test := range []struct {
-		filename string
-		check    func(fi *LanguageFileInfo)
-	}{
-		{"tc-lib-color/class-Com.Tecnick.Color.Css", func(fi *LanguageFileInfo) {
-			assert.Equal("class-Com.Tecnick.Color", fi.TranslationBaseName())
-			assert.Equal(filepath.FromSlash("/my/base"), fi.BaseDir())
-			assert.Equal(filepath.FromSlash("tc-lib-color/class-Com.Tecnick.Color.Css"), fi.Path())
-			assert.Equal("class-Com.Tecnick.Color.Css", fi.RealName())
-			assert.Equal(filepath.FromSlash("/my/base/tc-lib-color/class-Com.Tecnick.Color.Css"), fi.Filename())
-		}},
-		{"tc-lib-color/class-Com.Tecnick.Color.sv.Css", func(fi *LanguageFileInfo) {
-			assert.Equal("class-Com.Tecnick.Color", fi.TranslationBaseName())
-			assert.Equal("class-Com.Tecnick.Color.sv.Css", fi.RealName())
-			assert.Equal(filepath.FromSlash("/my/base/tc-lib-color/class-Com.Tecnick.Color.sv.Css"), fi.Filename())
-		}},
-	} {
-		err := afero.WriteFile(lfs, filepath.FromSlash(test.filename), []byte("abc"), 0777)
-		assert.NoError(err)
-		fi, err := lfs.Stat(filepath.FromSlash(test.filename))
-		assert.NoError(err)
-
-		lfi, ok := fi.(*LanguageFileInfo)
-		assert.True(ok)
-		assert.Equal("sv", lfi.Lang())
-		test.check(lfi)
+		for _, fs2 := range []MetaFs{enFs, svFs} {
+			lingoName := fmt.Sprintf("lingo.%s.txt", fs2.TheLang)
+			assert.NoError(afero.WriteFile(fs.Fs(), filepath.FromSlash("blog/"+lingoName), []byte(lingoName), 0777))
+		}
 
 	}
+
+	lfs, err := NewLingoFs(langSet, enFs, svFs)
+	assert.NoError(err)
+
+	afero.Walk(lfs, "", func(path string, info os.FileInfo, err error) error {
+		//fmt.Println(":::", path)
+
+		return nil
+	})
+
+	blog, err := lfs.Open("blog")
+	assert.NoError(err)
+
+	names, err := blog.Readdirnames(-1)
+	assert.NoError(err)
+	assert.Equal(4, len(names), names)
+	assert.Equal([]string{"a.txt", "lingo.en.txt", "a.txt", "lingo.sv.txt"}, names)
+
+	fis, err := blog.Readdir(-1)
+	assert.NoError(err)
+	assert.Equal(4, len(fis))
+	enFi, ok1 := fis[0].(LanguageAnnouncer)
+	svFi, ok2 := fis[2].(LanguageAnnouncer)
+	assert.True(ok1)
+	assert.True(ok2)
+	assert.Equal("en", enFi.Lang())
+	assert.Equal("sv", svFi.Lang())
 
 }
